@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -17,11 +18,7 @@ from aiogram.types import (
 )
 import aiosqlite
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stdout
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -73,19 +70,13 @@ async def get_serials_count():
 async def get_serials_page(offset=0, limit=8):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT id, name, description FROM serials ORDER BY name LIMIT ? OFFSET ?",
-            (limit, offset)
-        ) as cur:
+        async with db.execute("SELECT id, name, description FROM serials ORDER BY name LIMIT ? OFFSET ?", (limit, offset)) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 async def search_serials(query, limit=10):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT id, name FROM serials WHERE name LIKE ? COLLATE NOCASE ORDER BY name LIMIT ?",
-            (f"%{query}%", limit)
-        ) as cur:
+        async with db.execute("SELECT id, name FROM serials WHERE name LIKE ? COLLATE NOCASE ORDER BY name LIMIT ?", (f"%{query}%", limit)) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 async def get_serial(serial_id):
@@ -98,9 +89,7 @@ async def get_serial(serial_id):
 async def get_seasons(serial_id):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT id, serial_id, number, name FROM seasons WHERE serial_id=? ORDER BY number", (serial_id,)
-        ) as cur:
+        async with db.execute("SELECT id, serial_id, number, name FROM seasons WHERE serial_id=? ORDER BY number", (serial_id,)) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 async def get_season(season_id):
@@ -113,23 +102,19 @@ async def get_season(season_id):
 async def get_episodes(season_id):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT id, season_id, number, name, file_id FROM episodes WHERE season_id=? ORDER BY number", (season_id,)
-        ) as cur:
+        async with db.execute("SELECT id, season_id, number, name, file_id FROM episodes WHERE season_id=? ORDER BY number", (season_id,)) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 async def get_episode(episode_id):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT e.id, e.number, e.name, e.file_id,
+        async with db.execute("""SELECT e.id, e.number, e.name, e.file_id,
                       s.number as season_number, s.id as season_id, s.serial_id,
                       sr.name as serial_name
                FROM episodes e
                JOIN seasons s ON e.season_id = s.id
                JOIN serials sr ON s.serial_id = sr.id
-               WHERE e.id=?""", (episode_id,)
-        ) as cur:
+               WHERE e.id=?""", (episode_id,)) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
 
@@ -162,10 +147,7 @@ async def add_episode(season_id, number, name, file_id):
         return cur.lastrowid
 
 def main_menu():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🔎 Qidiruv"), KeyboardButton(text="📺 Seriallar")]],
-        resize_keyboard=True, persistent=True
-    )
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔎 Qidiruv"), KeyboardButton(text="📺 Seriallar")]], resize_keyboard=True, persistent=True)
 
 def serials_kb(serials, page, total):
     buttons = [[InlineKeyboardButton(text=f"📺 {s['name']}", callback_data=f"serial:{s['id']}")] for s in serials]
@@ -243,10 +225,7 @@ class Admin(StatesGroup):
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     name = message.from_user.first_name or "Do'st"
-    await message.answer(
-        f"👋 Salom, <b>{name}</b>!\n\n🎬 <b>Serial Bot</b>ga xush kelibsiz!\n\n📌 <b>Nima qilmoqchisiz?</b>",
-        reply_markup=main_menu()
-    )
+    await message.answer(f"👋 Salom, <b>{name}</b>!\n\n🎬 <b>Serial Bot</b>ga xush kelibsiz!\n\n📌 <b>Nima qilmoqchisiz?</b>", reply_markup=main_menu())
 
 async def show_page(target, page=0):
     total = await get_serials_count()
@@ -281,8 +260,7 @@ async def cb_serial(call: CallbackQuery):
         return
     seasons = await get_seasons(serial_id)
     desc = f"\n📝 {serial['description']}" if serial.get('description') else ""
-    text = (f"📺 <b>{serial['name']}</b>{desc}\n\n🎬 <b>{len(seasons)} ta fasl</b>"
-            if seasons else f"📺 <b>{serial['name']}</b>\n\n⚠️ Fasllar yo'q.")
+    text = (f"📺 <b>{serial['name']}</b>{desc}\n\n🎬 <b>{len(seasons)} ta fasl</b>" if seasons else f"📺 <b>{serial['name']}</b>\n\n⚠️ Fasllar yo'q.")
     await safe_edit(call.message, text, seasons_kb(serial, seasons))
     await call.answer()
 
@@ -296,8 +274,7 @@ async def cb_season(call: CallbackQuery):
     serial = await get_serial(season['serial_id'])
     episodes = await get_episodes(season_id)
     label = season['name'] if season['name'] else f"Fasl {season['number']}"
-    text = (f"📺 <b>{serial['name']}</b>\n🎬 <b>{label}</b>\n\n▶️ <b>{len(episodes)} ta qism</b>"
-            if episodes else f"📺 <b>{serial['name']}</b>\n🎬 <b>{label}</b>\n\n⚠️ Qismlar yo'q.")
+    text = (f"📺 <b>{serial['name']}</b>\n🎬 <b>{label}</b>\n\n▶️ <b>{len(episodes)} ta qism</b>" if episodes else f"📺 <b>{serial['name']}</b>\n🎬 <b>{label}</b>\n\n⚠️ Qismlar yo'q.")
     await safe_edit(call.message, text, episodes_kb(season, episodes, season['serial_id']))
     await call.answer()
 
@@ -307,13 +284,10 @@ async def cb_episode(call: CallbackQuery):
     if not ep:
         await call.answer("❌ Topilmadi!", show_alert=True)
         return
-    caption = (f"📺 <b>{ep['serial_name']}</b>\n🎬 Fasl {ep['season_number']}\n"
-               f"▶️ {ep['number']}-qism" + (f" — {ep['name']}" if ep['name'] else ""))
+    caption = (f"📺 <b>{ep['serial_name']}</b>\n🎬 Fasl {ep['season_number']}\n▶️ {ep['number']}-qism" + (f" — {ep['name']}" if ep['name'] else ""))
     await call.answer("⏳ Yuklanmoqda...")
     try:
-        await bot.send_video(call.message.chat.id, ep['file_id'], caption=caption,
-                             reply_markup=back_kb(ep['serial_id'], ep['season_id']),
-                             supports_streaming=True)
+        await bot.send_video(call.message.chat.id, ep['file_id'], caption=caption, reply_markup=back_kb(ep['serial_id'], ep['season_id']), supports_streaming=True)
     except Exception as e:
         logger.error(f"Video error: {e}")
         await call.message.answer(f"❌ Video yuborishda xato.\n<code>{e}</code>")
@@ -483,11 +457,7 @@ async def a_ep_file(message: Message, state: FSMContext):
     eid = await add_episode(data['season_id'], data['ep_num'], data['ep_name'], file_id)
     await state.clear()
     label = data['ep_name'] if data['ep_name'] else f"{data['ep_num']}-qism"
-    await message.answer(
-        f"✅ <b>{data['serial_name']}</b> — {data['season_label']}\n"
-        f"▶️ <b>{label}</b> qo'shildi!\n📦 {size_mb:.1f} MB\n"
-        f"🆔 ID: <code>{eid}</code>\n\nKeyingi: /addepisode"
-    )
+    await message.answer(f"✅ <b>{data['serial_name']}</b> — {data['season_label']}\n▶️ <b>{label}</b> qo'shildi!\n📦 {size_mb:.1f} MB\n🆔 ID: <code>{eid}</code>\n\nKeyingi: /addepisode")
 
 @dp.message(StateFilter(Admin.ep_file))
 async def a_ep_wrong(message: Message):
@@ -499,8 +469,25 @@ async def unknown(message: Message, state: FSMContext):
         return
     await message.answer("❓ /start — boshlash", reply_markup=main_menu())
 
+# ─── Health check server (Render uchun) ──────────────────────────────────────
+
+async def health(request):
+    return web.Response(text="OK")
+
+async def run_web():
+    port = int(os.environ.get("PORT", 8000))
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Health server: port {port}")
+
 async def main():
     await init_db()
+    await run_web()
     await bot.set_my_commands([
         BotCommand(command="start", description="🏠 Bosh menyu"),
         BotCommand(command="admin", description="⚙️ Admin panel"),
