@@ -22,9 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger(__name__)
 
 TOKEN = 
-if not TOKEN:TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    logger.error("TELEGRAM_BOT_TOKEN not set!")
-    sys.exit(1)
+if not TOKEN:TOKEN = TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "serials.db")
 PER_PAGE = 8
