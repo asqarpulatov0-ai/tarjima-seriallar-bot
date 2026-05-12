@@ -207,9 +207,9 @@ async def safe_edit(msg, text, markup=None):
     except Exception:
         await msg.answer(text, reply_markup=markup)
 
-class Search(StatesGroup):
+class Search(StatesGroup):    
     waiting = State()
-
+    
 class Admin(StatesGroup):
     serial_name = State()
     serial_desc = State()
@@ -220,7 +220,8 @@ class Admin(StatesGroup):
     ep_num = State()
     ep_name = State()
     ep_file = State()
-
+    bulk_season = State()
+    bulk_video = State()
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -458,7 +459,54 @@ async def a_ep_file(message: Message, state: FSMContext):
     await state.clear()
     label = data['ep_name'] if data['ep_name'] else f"{data['ep_num']}-qism"
     await message.answer(f"✅ <b>{data['serial_name']}</b> — {data['season_label']}\n▶️ <b>{label}</b> qo'shildi!\n📦 {size_mb:.1f} MB\n🆔 ID: <code>{eid}</code>\n\nKeyingi: /addepisode")
+@dp.message(Command("bulkadd"))
+async def cmd_bulkadd(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Ruxsat yo'q.")
+        return
+    await state.set_state(Admin.bulk_season)
+    await message.answer("⚡ <b>Ommaviy yuklash rejimi</b>\n\n🆔 Fasl ID sini kiriting:\n<i>/cancel — bekor qilish</i>")
 
+@dp.message(StateFilter(Admin.bulk_season))
+async def bulk_season(message: Message, state: FSMContext):
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Raqam kiriting:")
+        return
+    sid = int(message.text.strip())
+    season = await get_season(sid)
+    if not season:
+        await message.answer(f"❌ ID={sid} fasl topilmadi!")
+        return
+    serial = await get_serial(season['serial_id'])
+    label = season['name'] if season['name'] else f"Fasl {season['number']}"
+    existing = await get_episodes(sid)
+    next_num = (max(e['number'] for e in existing) + 1) if existing else 1
+    await state.update_data(bulk_season_id=sid, bulk_season_label=label, bulk_serial_name=serial['name'], bulk_next=next_num, bulk_count=0)
+    await state.set_state(Admin.bulk_video)
+    await message.answer(f"✅ <b>{serial['name']}</b> — {label}\n\n📹 Videolarni birin-ketin yuboring!\n▶️ Birinchi qism: <b>{next_num}-qism</b>\n\n<i>Tugatish: /done</i>")
+
+@dp.message(StateFilter(Admin.bulk_video), F.video)
+async def bulk_video(message: Message, state: FSMContext):
+    data = await state.get_data()
+    file_id = message.video.file_id
+    num = data['bulk_next']
+    size_mb = (message.video.file_size or 0) / 1024 / 1024
+    await add_episode(data['bulk_season_id'], num, "", file_id)
+    await state.update_data(bulk_next=num + 1, bulk_count=data['bulk_count'] + 1)
+    await message.answer(f"✅ <b>{num}-qism</b> qo'shildi! ({size_mb:.1f} MB)\n📹 Keyingisi: <b>{num+1}-qism</b>\n<i>Tugatish: /done</i>")
+
+@dp.message(StateFilter(Admin.bulk_video), Command("done"))
+async def bulk_done(message: Message, state: FSMContext):
+    data = await state.get_data()
+    count = data['bulk_count']
+    await state.clear()
+    await message.answer(f"🎉 <b>Yuklash tugadi!</b>\n\n📺 {data['bulk_serial_name']} — {data['bulk_season_label']}\n✅ Jami <b>{count} ta qism</b> qo'shildi!\n\nYana yuklash: /bulkadd")
+
+@dp.message(StateFilter(Admin.bulk_video))
+async def bulk_wrong(message: Message):
+    if message.text and message.text.startswith("/"):
+        return
+    await message.answer("❌ Faqat <b>video</b> yuboring!\n<i>Tugatish: /done</i>")
 @dp.message(StateFilter(Admin.ep_file))
 async def a_ep_wrong(message: Message):
     await message.answer("❌ Faqat video yuboring!")
