@@ -21,8 +21,12 @@ import aiosqlite
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
-TOKEN = 
-if not TOKEN:TOKEN = TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+if not TOKEN:
+    raise ValueError("TOKEN topilmadi! TELEGRAM_BOT_TOKEN ni environmentga qo‘shing.")
+
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "serials.db")
 PER_PAGE = 8
