@@ -21,16 +21,14 @@ import aiosqlite
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
-
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-
 if not TOKEN:
-    raise ValueError("TOKEN topilmadi! TELEGRAM_BOT_TOKEN ni environmentga qo‘shing.")
-
+    raise ValueError("TOKEN topilmadi! TELEGRAM_BOT_TOKEN ni environmentga qo'shing.")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "serials.db")
 PER_PAGE = 8
 
+# ========== DATABASE FUNCTIONS (sizning kodingiz, o‘zgarmagan) ==========
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript("""
@@ -148,6 +146,7 @@ async def add_episode(season_id, number, name, file_id):
         await db.commit()
         return cur.lastrowid
 
+# ========== KEYBOARDS ==========
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔎 Qidiruv"), KeyboardButton(text="📺 Seriallar")]], resize_keyboard=True, persistent=True)
 
@@ -224,6 +223,8 @@ class Admin(StatesGroup):
     ep_file = State()
     bulk_season = State()
     bulk_video = State()
+
+# ========== HANDLERS (sizning kodingiz, o‘zgarmagan) ==========
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -461,6 +462,7 @@ async def a_ep_file(message: Message, state: FSMContext):
     await state.clear()
     label = data['ep_name'] if data['ep_name'] else f"{data['ep_num']}-qism"
     await message.answer(f"✅ <b>{data['serial_name']}</b> — {data['season_label']}\n▶️ <b>{label}</b> qo'shildi!\n📦 {size_mb:.1f} MB\n🆔 ID: <code>{eid}</code>\n\nKeyingi: /addepisode")
+
 @dp.message(Command("bulkadd"))
 async def cmd_bulkadd(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
@@ -509,6 +511,7 @@ async def bulk_wrong(message: Message):
     if message.text and message.text.startswith("/"):
         return
     await message.answer("❌ Faqat <b>video</b> yuboring!\n<i>Tugatish: /done</i>")
+
 @dp.message(StateFilter(Admin.ep_file))
 async def a_ep_wrong(message: Message):
     await message.answer("❌ Faqat video yuboring!")
@@ -519,25 +522,20 @@ async def unknown(message: Message, state: FSMContext):
         return
     await message.answer("❓ /start — boshlash", reply_markup=main_menu())
 
-# ─── Health check server (Render uchun) ──────────────────────────────────────
+# ========== WEBHOOK (Render uchun) ==========
+async def handle_webhook(request):
+    """Telegram webhook handler"""
+    from aiogram.types import Update
+    update = Update.model_validate(await request.json(), context={"bot": bot})
+    await dp.feed_update(bot, update)
+    return web.Response(status=200)
 
 async def health(request):
     return web.Response(text="OK")
 
-async def run_web():
-    port = int(os.environ.get("PORT", 8000))
-    app = web.Application()
-    app.router.add_get("/", health)
-    app.router.add_get("/health", health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logger.info(f"Health server: port {port}")
-
-async def main():
+async def on_startup():
+    """Bot ishga tushganda bajariladigan ishlar"""
     await init_db()
-    await run_web()
     await bot.set_my_commands([
         BotCommand(command="start", description="🏠 Bosh menyu"),
         BotCommand(command="admin", description="⚙️ Admin panel"),
@@ -547,8 +545,51 @@ async def main():
         BotCommand(command="stats", description="📊 Statistika"),
         BotCommand(command="cancel", description="❌ Bekor"),
     ])
-    logger.info("🚀 Bot ishga tushdi!")
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), polling_timeout=30)
+    logger.info("✅ Bot ishga tayyor!")
+
+async def main():
+    """Asosiy funksiya - Render webhook rejimi"""
+    port = int(os.environ.get("PORT", 10000))
+    webhook_path = "/webhook"
+    
+    # Webhook URL ni aniqlash
+    if os.environ.get("RENDER"):
+        # Render muhiti
+        render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+        if not render_hostname:
+            logger.error("RENDER_EXTERNAL_HOSTNAME topilmadi!")
+            return
+        webhook_url = f"https://{render_hostname}{webhook_path}"
+    else:
+        # Local testing
+        webhook_url = f"http://localhost:{port}{webhook_path}"
+    
+    # Bot va dispatcher
+    await on_startup()
+    
+    # Webhook sozlash
+    await bot.set_webhook(webhook_url, drop_pending_updates=True)
+    logger.info(f"Webhook sozlandi: {webhook_url}")
+    
+    # Aiohttp web app
+    app = web.Application()
+    app.router.add_post(webhook_path, handle_webhook)
+    app.router.add_get("/health", health)
+    app.router.add_get("/", health)
+    
+    # Server start
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    logger.info(f"🚀 Bot ishga tushdi! Port: {port}")
+    
+    # Botni ishlatib turish
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
