@@ -2,8 +2,6 @@ import asyncio
 import logging
 import os
 import sys
-from aiohttp import web
-
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -145,7 +143,6 @@ async def add_episode(season_id, number, name, file_id):
         await db.commit()
         return cur.lastrowid
 
-# ========== KEYBOARDS ==========
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔎 Qidiruv"), KeyboardButton(text="📺 Seriallar")]], resize_keyboard=True, persistent=True)
 
@@ -520,11 +517,7 @@ async def unknown(message: Message, state: FSMContext):
         return
     await message.answer("❓ /start — boshlash", reply_markup=main_menu())
 
-# ========== POLLING MODE (Render uchun) ==========
-# Webhook o‘rniga polling ishlatamiz - bu Render'da ishlaydi
-
 async def main():
-    """Asosiy funksiya - polling rejimi"""
     await init_db()
     await bot.set_my_commands([
         BotCommand(command="start", description="🏠 Bosh menyu"),
