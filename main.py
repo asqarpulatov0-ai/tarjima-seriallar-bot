@@ -4,9 +4,8 @@ import logging
 import os
 import sys
 from typing import Any, Dict, Optional
-
-import aiohttp
 from aiohttp import web
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -20,6 +19,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
 )
 from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 import aiosqlite
 
 logging.basicConfig(
@@ -201,17 +201,22 @@ async def add_episode(serial_id: int, number: int, file_id: str,
 async def add_next_episode(serial_id: int, file_id: str,
                            channel_id=None, message_id=None) -> int:
     async with aiosqlite.connect(DB_PATH, timeout=30) as db:
-        async with db.execute(
-            "SELECT COALESCE(MAX(number), 0) + 1 FROM episodes WHERE serial_id=?",
-            (serial_id,)
-        ) as cur:
-            next_num = (await cur.fetchone())[0]
-        await db.execute(
-            "INSERT INTO episodes(serial_id, number, file_id, channel_id, message_id) VALUES(?,?,?,?,?)",
-            (serial_id, next_num, file_id, channel_id, message_id)
-        )
-        await db.commit()
-        return next_num
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            async with db.execute(
+                "SELECT COALESCE(MAX(number), 0) + 1 FROM episodes WHERE serial_id=?",
+                (serial_id,)
+            ) as cur:
+                next_num = (await cur.fetchone())[0]
+            await db.execute(
+                "INSERT INTO episodes(serial_id, number, file_id, channel_id, message_id) VALUES(?,?,?,?,?)",
+                (serial_id, next_num, file_id, channel_id, message_id)
+            )
+            await db.commit()
+            return next_num
+        except Exception as e:
+            await db.rollback()
+            raise e
 
 async def delete_episode(episode_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -590,15 +595,19 @@ async def upload_serial_name(message: Message, state: FSMContext):
 async def upload_video(message: Message, state: FSMContext):
     lock = get_upload_lock(message.from_user.id)
     async with lock:
-        data = await state.get_data()
-        file_id = message.video.file_id
-        size_mb = (message.video.file_size or 0) / 1024 / 1024
-        num = await add_next_episode(data['serial_id'], file_id)
-        await state.update_data(count=data['count'] + 1)
-    await message.answer(
-        f"✅ <b>{num}-qism</b> saqlandi ({size_mb:.1f} MB)\n"
-        f"<i>Tugatish: /done</i>"
-    )
+        try:
+            data = await state.get_data()
+            file_id = message.video.file_id
+            size_mb = (message.video.file_size or 0) / 1024 / 1024
+            num = await add_next_episode(data['serial_id'], file_id)
+            await state.update_data(count=data.get('count', 0) + 1)
+            await message.answer(
+                f"✅ <b>{num}-qism</b> saqlandi ({size_mb:.1f} MB)\n"
+                f"<i>Tugatish: /done</i>"
+            )
+        except Exception as e:
+            logger.error(f"Video saqlashda xato: {e}")
+            await message.answer(f"❌ Xato: {str(e)[:100]}\nQaytadan urinib ko'ring.")
 
 @dp.message(StateFilter(Upload.videos), Command("done"))
 async def upload_done(message: Message, state: FSMContext):
@@ -842,44 +851,15 @@ async def unknown(message: Message, state: FSMContext):
         reply_markup=main_menu()
     )
 
-# ─── Webhook (Render production) ─────────────────────────────────────────────
+# ─── Webhook (Render) ─────────────────────────────────────────────────────────
 
-WEBHOOK_SECRET = os.environ.get("SESSION_SECRET", "tarjima_seriallar_secret_2024")
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "tarjima_seriallar_secret_2024")
 WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
 
 async def health(request):
     return web.Response(text="OK")
 
-async def run_webhook_mode(base_url: str):
-    """Production rejimi — webhook orqali ishlaydi (24/7)"""
-    webhook_url = f"{base_url}{WEBHOOK_PATH}"
-    await bot.set_webhook(
-        url=webhook_url,
-        allowed_updates=["message", "callback_query"],
-        drop_pending_updates=True,
-    )
-    logger.info(f"🔗 Webhook o'rnatildi: {webhook_url}")
-
-    port = int(os.environ.get("PORT", 10000))
-    app = web.Application()
-    app.router.add_get("/", health)
-    app.router.add_get("/health", health)
-
-    from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-    SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=WEBHOOK_SECRET).register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, bot=bot)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logger.info(f"🌐 Web server port {port} da ishga tushdi")
-
-    await asyncio.Event().wait()
-
-# ─── Main ─────────────────────────────────────────────────────────────────────
-
-async def main():
+async def on_startup():
     await init_db()
     await bot.set_my_commands([
         BotCommand(command="start", description="🏠 Bosh menyu"),
@@ -891,18 +871,41 @@ async def main():
         BotCommand(command="admin", description="⚙️ Admin panel"),
         BotCommand(command="cancel", description="❌ Bekor qilish"),
     ])
+    logger.info("Bot ishga tayyor!")
 
-    # Render muhitini aniqlash
+async def main():
+    await on_startup()
+    
+    port = int(os.environ.get("PORT", 10000))
     render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
     
     if render_hostname:
         base_url = f"https://{render_hostname}"
-        logger.info(f"🚀 Bot ishga tushdi! [RENDER PRODUCTION — webhook] {base_url}")
-        await run_webhook_mode(base_url)
+        webhook_url = f"{base_url}{WEBHOOK_PATH}"
+        
+        await bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True
+        )
+        logger.info(f"Webhook o'rnatildi: {webhook_url}")
+        
+        app = web.Application()
+        app.router.add_get("/", health)
+        app.router.add_get("/health", health)
+        
+        SimpleRequestHandler(dp, bot, secret_token=WEBHOOK_SECRET).register(app, path=WEBHOOK_PATH)
+        setup_application(app, dp, bot=bot)
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        
+        logger.info(f"Server {port} portda ishga tushdi")
+        await asyncio.Event().wait()
     else:
-        # Local yoki Replit uchun
-        logger.info("🚀 Bot ishga tushdi! [DEV MODE]")
-        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Polling rejimi")
         await dp.start_polling(bot)
 
 if __name__ == "__main__":
