@@ -206,13 +206,11 @@ def admin_kb():
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
+# ========== ADMIN FUNKSIYASI (2 TA ADMIN ID BILAN) ==========
 def is_admin(user_id):
-    env = os.environ.get("ADMIN_IDS", "")
-    ids = set(int(x) for x in env.split(",") if x.strip().isdigit())
-    # Agar environment bo'sh bo'lsa, hech kim admin emas
-    if not ids:
-        return False
-    return user_id in ids
+    # Ikkala admin ID
+    admin_ids = {1885056636, 8168417164}
+    return user_id in admin_ids
 
 async def safe_edit(msg, text, markup=None):
     try:
@@ -472,7 +470,7 @@ async def a_serial_qismlar_soni(message: Message, state: FSMContext):
 @dp.message(Command("bulkadd"))
 async def cmd_bulkadd(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
-        await message.answer("⛔ Ruxsat yo'q. Siz admin emassiz!\n\nAdmin ID ni environmentga qo'shing: ADMIN_IDS=123456789")
+        await message.answer("⛔ Ruxsat yo'q. Siz admin emassiz!")
         return
     await state.set_state(Admin.bulk_season)
     await message.answer("⚡ <b>Ommaviy yuklash rejimi</b>\n\n🆔 Fasl ID sini kiriting:\n<i>/cancel — bekor qilish</i>")
@@ -495,7 +493,6 @@ async def bulk_season(message: Message, state: FSMContext):
     serial = await get_serial(season['serial_id'])
     label = season['name'] if season['name'] else f"Fasl {season['number']}"
     existing = await get_episodes(sid)
-    # PENDING larni ham hisobga olish
     existing_numbers = [e['number'] for e in existing]
     next_num = 1
     while next_num in existing_numbers:
