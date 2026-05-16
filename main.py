@@ -206,9 +206,9 @@ def admin_kb():
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# ========== ADMIN FUNKSIYASI (2 TA ADMIN ID BILAN) ==========
+# ========== ADMIN FUNKSIYASI - FAQAT 2 TA ADMIN ==========
 def is_admin(user_id):
-    # Ikkala admin ID
+    # Faqat shu 2 ta ID admin bo'la oladi
     admin_ids = {1885056636, 8168417164}
     return user_id in admin_ids
 
@@ -349,8 +349,9 @@ async def cb_noop(call: CallbackQuery):
 # ========== ADMIN HANDLERS ==========
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Ruxsat yo'q. Siz admin emassiz!")
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        await message.answer("⛔ Ruxsat yo'q! Siz admin emassiz.")
         return
     await message.answer(
         "⚙️ <b>Admin Panel</b>\n\nQuyidagi tugmalardan foydalaning:",
