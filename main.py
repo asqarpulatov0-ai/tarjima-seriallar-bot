@@ -176,6 +176,8 @@ def episodes_kb(season, episodes, serial_id):
     buttons = []
     for e in episodes:
         label = e['name'] if e['name'] else f"{e['number']}-qism"
+        if e['file_id'] == "PENDING":
+            label = f"⏳ {label} (video kutilmoqda)"
         buttons.append([InlineKeyboardButton(text=f"▶️ {label}", callback_data=f"ep:{e['id']}")])
     buttons.append([InlineKeyboardButton(text="◀️ Fasllar", callback_data=f"serial:{serial_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -207,6 +209,9 @@ dp = Dispatcher(storage=MemoryStorage())
 def is_admin(user_id):
     env = os.environ.get("ADMIN_IDS", "")
     ids = set(int(x) for x in env.split(",") if x.strip().isdigit())
+    # Agar environment bo'sh bo'lsa, hech kim admin emas
+    if not ids:
+        return False
     return user_id in ids
 
 async def safe_edit(msg, text, markup=None):
@@ -222,7 +227,6 @@ class Admin(StatesGroup):
     serial_name = State()
     serial_desc = State()
     serial_qismlar_soni = State()
-    serial_qism_videolari = State()
     season_serial = State()
     season_num = State()
     season_name = State()
@@ -297,6 +301,9 @@ async def cb_episode(call: CallbackQuery):
     if not ep:
         await call.answer("❌ Topilmadi!", show_alert=True)
         return
+    if ep['file_id'] == "PENDING":
+        await call.answer("⏳ Bu qismga video hali yuklanmagan!", show_alert=True)
+        return
     caption = (f"📺 <b>{ep['serial_name']}</b>\n🎬 Fasl {ep['season_number']}\n▶️ {ep['number']}-qism" + (f" — {ep['name']}" if ep['name'] else ""))
     await call.answer("⏳ Yuklanmoqda...")
     try:
@@ -345,7 +352,7 @@ async def cb_noop(call: CallbackQuery):
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
     if not is_admin(message.from_user.id):
-        await message.answer("⛔ Ruxsat yo'q.")
+        await message.answer("⛔ Ruxsat yo'q. Siz admin emassiz!")
         return
     await message.answer(
         "⚙️ <b>Admin Panel</b>\n\nQuyidagi tugmalardan foydalaning:",
@@ -355,7 +362,7 @@ async def cmd_admin(message: Message):
 @dp.callback_query(F.data == "admin_addserial")
 async def admin_addserial_cb(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
-        await call.answer("⛔ Ruxsat yo'q.")
+        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
         return
     await state.set_state(Admin.serial_name)
     await call.message.answer("📝 Serial nomini kiriting:")
@@ -364,7 +371,7 @@ async def admin_addserial_cb(call: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "admin_quickadd")
 async def admin_quickadd_cb(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
-        await call.answer("⛔ Ruxsat yo'q.")
+        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
         return
     await state.set_state("quickadd_serial")
     await call.message.answer(
@@ -375,7 +382,7 @@ async def admin_quickadd_cb(call: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "admin_bulkadd")
 async def admin_bulkadd_cb(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
-        await call.answer("⛔ Ruxsat yo'q.")
+        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
         return
     await cmd_bulkadd(call.message, state)
     await call.answer()
@@ -465,13 +472,18 @@ async def a_serial_qismlar_soni(message: Message, state: FSMContext):
 @dp.message(Command("bulkadd"))
 async def cmd_bulkadd(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
-        await message.answer("⛔ Ruxsat yo'q.")
+        await message.answer("⛔ Ruxsat yo'q. Siz admin emassiz!\n\nAdmin ID ni environmentga qo'shing: ADMIN_IDS=123456789")
         return
     await state.set_state(Admin.bulk_season)
     await message.answer("⚡ <b>Ommaviy yuklash rejimi</b>\n\n🆔 Fasl ID sini kiriting:\n<i>/cancel — bekor qilish</i>")
 
 @dp.message(StateFilter(Admin.bulk_season))
 async def bulk_season(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Ruxsat yo'q!")
+        await state.clear()
+        return
+    
     if not message.text.strip().isdigit():
         await message.answer("❌ Raqam kiriting:")
         return
@@ -483,7 +495,12 @@ async def bulk_season(message: Message, state: FSMContext):
     serial = await get_serial(season['serial_id'])
     label = season['name'] if season['name'] else f"Fasl {season['number']}"
     existing = await get_episodes(sid)
-    next_num = (max(e['number'] for e in existing) + 1) if existing else 1
+    # PENDING larni ham hisobga olish
+    existing_numbers = [e['number'] for e in existing]
+    next_num = 1
+    while next_num in existing_numbers:
+        next_num += 1
+    
     await state.update_data(bulk_season_id=sid, bulk_season_label=label, bulk_serial_name=serial['name'], bulk_next=next_num, bulk_count=0)
     await state.set_state(Admin.bulk_video)
     await message.answer(f"✅ <b>{serial['name']}</b> — {label}\n\n📹 Videolarni yuboring!\n▶️ Boshlang'ich qism: <b>{next_num}</b>\n\n<i>Tugatish: /done</i>")
@@ -685,6 +702,7 @@ async def on_startup():
         BotCommand(command="addseason", description="➕ Fasl"),
         BotCommand(command="addepisode", description="➕ Qism"),
         BotCommand(command="bulkadd", description="📦 Ommaviy yuklash"),
+        BotCommand(command="quickadd", description="⚡ Tez yuklash"),
         BotCommand(command="stats", description="📊 Statistika"),
         BotCommand(command="cancel", description="❌ Bekor"),
     ])
