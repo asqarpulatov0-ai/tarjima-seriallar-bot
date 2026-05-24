@@ -208,9 +208,13 @@ dp = Dispatcher(storage=MemoryStorage())
 
 # ========== ADMIN FUNKSIYASI - FAQAT 2 TA ADMIN ==========
 def is_admin(user_id):
-    # Faqat shu 2 ta ID admin bo'la oladi
-    admin_ids = {1885056636, 8168417164}
-    return user_id in admin_ids
+    logger.info(f"ADMIN TEKSHIRUV: {user_id}")
+
+    admin_ids = {
+        1885056636,
+        8168417164
+    }
+    return int(user_id) in admin_ids
 
 async def safe_edit(msg, text, markup=None):
     try:
