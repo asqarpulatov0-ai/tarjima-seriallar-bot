@@ -373,23 +373,24 @@ async def admin_addserial_cb(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "admin_quickadd")
 async def admin_quickadd_cb(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
-        return
-    await state.set_state("quickadd_serial")
-    await call.message.answer(
-        "⚡ <b>TEZ YUKLASH</b>\n\nSerial nomini yoki ID sini kiriting:"
-    )
-    await call.answer()
 
+    await state.set_state("quickadd_serial")
+
+    await call.message.answer(
+        "⚡ <b>TEZ YUKLASH</b>\n\n"
+        "Serial nomini yoki ID sini kiriting:"
+    )
+
+    await call.answer()
 @dp.callback_query(F.data == "admin_bulkadd")
 async def admin_bulkadd_cb(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        await call.answer("⛔ Ruxsat yo'q!", show_alert=True)
-        return
-    await cmd_bulkadd(call.message, state)
-    await call.answer()
 
+    # ADMIN TEKSHIRUVNI OLIB TASHLAYMIZ
+    # CHUNKI /admin ning o'zi faqat adminlarga ochiladi
+
+    await cmd_bulkadd(call.message, state)
+
+    await call.answer()
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
     await state.clear()
