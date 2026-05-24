@@ -384,12 +384,13 @@ async def admin_quickadd_cb(call: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "admin_bulkadd")
 async def admin_bulkadd_cb(call: CallbackQuery, state: FSMContext):
 
-    # USER ID NI TEKSHIRIB KO'RAMIZ
-    await call.message.answer(
-        f"🆔 Sizning ID: <code>{call.from_user.id}</code>"
-    )
+    await state.set_state(Admin.bulk_season)
 
-    await cmd_bulkadd(call.message, state)
+    await call.message.answer(
+        "⚡ <b>Ommaviy yuklash rejimi</b>\n\n"
+        "🆔 Fasl ID sini kiriting:\n"
+        "<i>/cancel — bekor qilish</i>"
+    )
 
     await call.answer()
 @dp.message(Command("cancel"))
