@@ -381,12 +381,13 @@ async def admin_quickadd_cb(call: CallbackQuery, state: FSMContext):
         "Serial nomini yoki ID sini kiriting:"
     )
 
-    await call.answer()
 @dp.callback_query(F.data == "admin_bulkadd")
 async def admin_bulkadd_cb(call: CallbackQuery, state: FSMContext):
 
-    # ADMIN TEKSHIRUVNI OLIB TASHLAYMIZ
-    # CHUNKI /admin ning o'zi faqat adminlarga ochiladi
+    # USER ID NI TEKSHIRIB KO'RAMIZ
+    await call.message.answer(
+        f"🆔 Sizning ID: <code>{call.from_user.id}</code>"
+    )
 
     await cmd_bulkadd(call.message, state)
 
