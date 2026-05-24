@@ -529,57 +529,68 @@ async def bulk_wrong(message: Message):
 @dp.message(StateFilter("quickadd_serial"))
 async def quickadd_serial(message: Message, state: FSMContext):
     text = message.text.strip()
-    
+
+    # Serial topish
     if text.isdigit():
         serial = await get_serial(int(text))
     else:
         results = await search_serials(text, limit=1)
         serial = results[0] if results else None
-    
+
+    # Topilmasa
     if not serial:
-        await message.answer(f"❌ «{text}» topilmadi! Qaytadan kiriting:")
+        await message.answer(
+            f"❌ «{text}» topilmadi!\n\nQaytadan kiriting:"
+        )
         return
-    
+
+    # Faslni olish yoki yaratish
     seasons = await get_seasons(serial['id'])
+
     if not seasons:
-        season_id = await add_season(serial['id'], 1, "1-fasl")
+        season_id = await add_season(
+            serial['id'],
+            1,
+            "1-fasl"
+        )
     else:
         season_id = seasons[0]['id']
-    
-    await state.update_data(quick_serial=serial, quick_season=season_id, quick_next=1, quick_count=0)
+
+    # Mavjud qismlarni olish
+    episodes = await get_episodes(season_id)
+
+    existing_numbers = [
+        e['number']
+        for e in episodes
+    ]
+
+    # Keyingi bo‘sh qismni topish
+    next_num = 1
+
+    while next_num in existing_numbers:
+        next_num += 1
+
+    # State saqlash
+    await state.update_data(
+        quick_serial=serial,
+        quick_season=season_id,
+        quick_next=next_num,
+        quick_count=0
+    )
     await state.set_state("quickadd_video")
+
+    # Javob
     await message.answer(
         f"✅ <b>{serial['name']}</b>\n"
         f"🎬 1-fasl\n\n"
-        f"📹 <b>Videolarni yuboring!</b>\n"
-        f"1-video → 1-qism\n"
-        f"2-video → 2-qism\n"
+        f"📹 <b>Videolarni yuboring!</b>\n\n"
+        f"▶️ Boshlanish: "
+        f"<b>{next_num}-qism</b>\n\n"
+        f"1-video → {next_num}-qism\n"
+        f"2-video → {next_num + 1}-qism\n"
+        f"3-video → {next_num + 2}-qism\n"
         f"...\n\n"
         f"<i>Tugatish: /done</i>"
-    )
-
-@dp.message(StateFilter("quickadd_video"), F.video)
-async def quickadd_video(message: Message, state: FSMContext):
-    data = await state.get_data()
-    file_id = message.video.file_id
-    qism_raqam = data['quick_next']
-    
-    await add_episode(data['quick_season'], qism_raqam, f"{qism_raqam}-qism", file_id)
-    
-    await state.update_data(quick_next=qism_raqam + 1, quick_count=data['quick_count'] + 1)
-    await message.answer(f"✅ <b>{qism_raqam}-qism</b> saqlandi!\n📹 Keyingi: {qism_raqam + 1}-qism\n<i>/done - tugatish</i>")
-
-@dp.message(StateFilter("quickadd_video"), Command("done"))
-async def quickadd_done(message: Message, state: FSMContext):
-    data = await state.get_data()
-    count = data['quick_count']
-    serial = data['quick_serial']
-    
-    await state.clear()
-    await message.answer(
-        f"🎉 <b>YUKLASH TUGADI!</b>\n\n"
-        f"📺 <b>{serial['name']}</b>\n"
-        f"✅ Jami <b>{count} ta qism</b> qo'shildi!"
     )
 
 @dp.message(Command("addseason"))
