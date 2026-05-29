@@ -206,10 +206,9 @@ def admin_kb():
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# ========== ADMIN FUNKSIYASI - FAQAT 2 TA ADMIN ==========
+# ========== ADMIN FUNKSIYASI ==========
 def is_admin(user_id):
     logger.info(f"ADMIN TEKSHIRUV: {user_id}")
-
     admin_ids = {
         1885056636,
         8168417164
@@ -222,9 +221,9 @@ async def safe_edit(msg, text, markup=None):
     except Exception:
         await msg.answer(text, reply_markup=markup)
 
-class Search(StatesGroup):    
+class Search(StatesGroup):
     waiting = State()
-    
+
 class Admin(StatesGroup):
     serial_name = State()
     serial_desc = State()
@@ -353,14 +352,10 @@ async def cb_noop(call: CallbackQuery):
 # ========== ADMIN HANDLERS ==========
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
+    if not is_admin(message.from_user.id):
         await message.answer("⛔ Ruxsat yo'q! Siz admin emassiz.")
         return
-    await message.answer(
-        "⚙️ <b>Admin Panel</b>\n\nQuyidagi tugmalardan foydalaning:",
-        reply_markup=admin_kb()
-    )
+    await message.answer("⚙️ <b>Admin Panel</b>\n\nQuyidagi tugmalardan foydalaning:", reply_markup=admin_kb())
 
 @dp.callback_query(F.data == "admin_addserial")
 async def admin_addserial_cb(call: CallbackQuery, state: FSMContext):
@@ -373,26 +368,15 @@ async def admin_addserial_cb(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "admin_quickadd")
 async def admin_quickadd_cb(call: CallbackQuery, state: FSMContext):
-
     await state.set_state("quickadd_serial")
-
-    await call.message.answer(
-        "⚡ <b>TEZ YUKLASH</b>\n\n"
-        "Serial nomini yoki ID sini kiriting:"
-    )
+    await call.message.answer("⚡ <b>TEZ YUKLASH</b>\n\nSerial nomini yoki ID sini kiriting:")
 
 @dp.callback_query(F.data == "admin_bulkadd")
 async def admin_bulkadd_cb(call: CallbackQuery, state: FSMContext):
-
     await state.set_state(Admin.bulk_season)
-
-    await call.message.answer(
-        "⚡ <b>Ommaviy yuklash rejimi</b>\n\n"
-        "🆔 Fasl ID sini kiriting:\n"
-        "<i>/cancel — bekor qilish</i>"
-    )
-
+    await call.message.answer("⚡ <b>Ommaviy yuklash rejimi</b>\n\n🆔 Fasl ID sini kiriting:\n<i>/cancel — bekor qilish</i>")
     await call.answer()
+
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
     await state.clear()
@@ -438,24 +422,19 @@ async def a_serial_desc(message: Message, state: FSMContext):
 async def a_serial_qismlar_soni(message: Message, state: FSMContext):
     text = message.text.strip()
     data = await state.get_data()
-    
     if text == "-" or text == "0" or text == "":
         await state.clear()
         await message.answer(f"✅ <b>{data['serial_name']}</b> saqlandi!\n\n➕ Qismlar: /addepisode")
         return
-    
     if not text.isdigit():
         await message.answer("❌ Faqat raqam kiriting (masalan: 50):")
         return
-    
     qismlar_soni = int(text)
-    
     seasons = await get_seasons(data['serial_id'])
     if not seasons:
         season_id = await add_season(data['serial_id'], 1, "1-fasl")
     else:
         season_id = seasons[0]['id']
-    
     yaratilgan = 0
     for qism_raqam in range(1, qismlar_soni + 1):
         episodes = await get_episodes(season_id)
@@ -463,7 +442,6 @@ async def a_serial_qismlar_soni(message: Message, state: FSMContext):
         if not mavjud:
             await add_episode(season_id, qism_raqam, f"{qism_raqam}-qism", "PENDING")
             yaratilgan += 1
-    
     await state.clear()
     await message.answer(
         f"🎉 <b>YAKUNLANDI!</b>\n\n"
@@ -489,7 +467,6 @@ async def bulk_season(message: Message, state: FSMContext):
         await message.answer("⛔ Ruxsat yo'q!")
         await state.clear()
         return
-    
     if not message.text.strip().isdigit():
         await message.answer("❌ Raqam kiriting:")
         return
@@ -505,17 +482,20 @@ async def bulk_season(message: Message, state: FSMContext):
     next_num = 1
     while next_num in existing_numbers:
         next_num += 1
-    
     await state.update_data(bulk_season_id=sid, bulk_season_label=label, bulk_serial_name=serial['name'], bulk_next=next_num, bulk_count=0)
     await state.set_state(Admin.bulk_video)
     await message.answer(f"✅ <b>{serial['name']}</b> — {label}\n\n📹 Videolarni yuboring!\n▶️ Boshlang'ich qism: <b>{next_num}</b>\n\n<i>Tugatish: /done</i>")
 
-@dp.message(StateFilter(Admin.bulk_video), F.video)
+@dp.message(StateFilter(Admin.bulk_video), F.video | F.document)
 async def bulk_video(message: Message, state: FSMContext):
     data = await state.get_data()
-    file_id = message.video.file_id
+    if message.video:
+        file_id = message.video.file_id
+        size_mb = (message.video.file_size or 0) / 1024 / 1024
+    else:
+        file_id = message.document.file_id
+        size_mb = (message.document.file_size or 0) / 1024 / 1024
     num = data['bulk_next']
-    size_mb = (message.video.file_size or 0) / 1024 / 1024
     await add_episode(data['bulk_season_id'], num, f"{num}-qism", file_id)
     await state.update_data(bulk_next=num + 1, bulk_count=data['bulk_count'] + 1)
     await message.answer(f"✅ <b>{num}-qism</b> qo'shildi! ({size_mb:.1f} MB)\n📹 Keyingisi: <b>{num+1}-qism</b>\n<i>Tugatish: /done</i>")
@@ -536,69 +516,82 @@ async def bulk_wrong(message: Message):
 @dp.message(StateFilter("quickadd_serial"))
 async def quickadd_serial(message: Message, state: FSMContext):
     text = message.text.strip()
-
-    # Serial topish
     if text.isdigit():
         serial = await get_serial(int(text))
     else:
         results = await search_serials(text, limit=1)
         serial = results[0] if results else None
-
-    # Topilmasa
     if not serial:
-        await message.answer(
-            f"❌ «{text}» topilmadi!\n\nQaytadan kiriting:"
-        )
+        await message.answer(f"❌ «{text}» topilmadi!\n\nQaytadan kiriting:")
         return
-
-    # Faslni olish yoki yaratish
     seasons = await get_seasons(serial['id'])
-
     if not seasons:
-        season_id = await add_season(
-            serial['id'],
-            1,
-            "1-fasl"
-        )
+        season_id = await add_season(serial['id'], 1, "1-fasl")
     else:
         season_id = seasons[0]['id']
-
-    # Mavjud qismlarni olish
     episodes = await get_episodes(season_id)
-
-    existing_numbers = [
-        e['number']
-        for e in episodes
-    ]
-
-    # Keyingi bo‘sh qismni topish
+    existing_numbers = [e['number'] for e in episodes]
     next_num = 1
-
     while next_num in existing_numbers:
         next_num += 1
-
-    # State saqlash
-    await state.update_data(
-        quick_serial=serial,
-        quick_season=season_id,
-        quick_next=next_num,
-        quick_count=0
-    )
+    await state.update_data(quick_serial=serial, quick_season=season_id, quick_next=next_num, quick_count=0)
     await state.set_state("quickadd_video")
-
-    # Javob
     await message.answer(
         f"✅ <b>{serial['name']}</b>\n"
         f"🎬 1-fasl\n\n"
         f"📹 <b>Videolarni yuboring!</b>\n\n"
-        f"▶️ Boshlanish: "
-        f"<b>{next_num}-qism</b>\n\n"
+        f"▶️ Boshlanish: <b>{next_num}-qism</b>\n\n"
         f"1-video → {next_num}-qism\n"
         f"2-video → {next_num + 1}-qism\n"
         f"3-video → {next_num + 2}-qism\n"
         f"...\n\n"
         f"<i>Tugatish: /done</i>"
     )
+
+# ========== QUYIDAGI 3 TA HANDLER QO'SHILDI (TUZATISH) ==========
+
+@dp.message(StateFilter("quickadd_video"), F.video | F.document)
+async def quickadd_video(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    if message.video:
+        file_id = message.video.file_id
+        size_mb = (message.video.file_size or 0) / 1024 / 1024
+    else:
+        file_id = message.document.file_id
+        size_mb = (message.document.file_size or 0) / 1024 / 1024
+    num = data['quick_next']
+    season_id = data['quick_season']
+    serial = data['quick_serial']
+    await add_episode(season_id, num, f"{num}-qism", file_id)
+    await state.update_data(quick_next=num + 1, quick_count=data['quick_count'] + 1)
+    await message.answer(
+        f"✅ <b>{num}-qism</b> qo'shildi! ({size_mb:.1f} MB)\n"
+        f"📹 Keyingisi: <b>{num+1}-qism</b>\n"
+        f"<i>Tugatish: /done</i>"
+    )
+
+@dp.message(StateFilter("quickadd_video"), Command("done"))
+async def quickadd_done(message: Message, state: FSMContext):
+    data = await state.get_data()
+    count = data.get('quick_count', 0)
+    serial = data.get('quick_serial', {})
+    await state.clear()
+    await message.answer(
+        f"🎉 <b>Yuklash tugadi!</b>\n\n"
+        f"📺 {serial.get('name', '')}\n"
+        f"✅ Jami <b>{count} ta qism</b> qo'shildi!\n\n"
+        f"Yana: /admin"
+    )
+
+@dp.message(StateFilter("quickadd_video"))
+async def quickadd_wrong(message: Message):
+    if message.text and message.text.startswith("/"):
+        return
+    await message.answer("❌ Faqat <b>video</b> yuboring!\n<i>Tugatish: /done</i>")
+
+# ========== TUZATISH TUGADI ==========
 
 @dp.message(Command("addseason"))
 async def cmd_addseason(message: Message, state: FSMContext):
@@ -679,11 +672,15 @@ async def a_ep_name(message: Message, state: FSMContext):
     await state.set_state(Admin.ep_file)
     await message.answer("🎬 Videoni yuboring!")
 
-@dp.message(StateFilter(Admin.ep_file), F.video)
+@dp.message(StateFilter(Admin.ep_file), F.video | F.document)
 async def a_ep_file(message: Message, state: FSMContext):
     data = await state.get_data()
-    file_id = message.video.file_id
-    size_mb = (message.video.file_size or 0) / 1024 / 1024
+    if message.video:
+        file_id = message.video.file_id
+        size_mb = (message.video.file_size or 0) / 1024 / 1024
+    else:
+        file_id = message.document.file_id
+        size_mb = (message.document.file_size or 0) / 1024 / 1024
     eid = await add_episode(data['season_id'], data['ep_num'], data['ep_name'], file_id)
     await state.clear()
     label = data['ep_name'] if data['ep_name'] else f"{data['ep_num']}-qism"
@@ -727,7 +724,6 @@ async def on_startup():
 async def main():
     port = int(os.environ.get("PORT", 10000))
     webhook_path = "/webhook"
-    
     if os.environ.get("RENDER"):
         render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
         if not render_hostname:
@@ -736,23 +732,18 @@ async def main():
         webhook_url = f"https://{render_hostname}{webhook_path}"
     else:
         webhook_url = f"http://localhost:{port}{webhook_path}"
-    
     await on_startup()
     await bot.set_webhook(webhook_url, drop_pending_updates=True)
     logger.info(f"Webhook sozlandi: {webhook_url}")
-    
     app = web.Application()
     app.router.add_post(webhook_path, handle_webhook)
     app.router.add_get("/health", health)
     app.router.add_get("/", health)
-    
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    
     logger.info(f"🚀 Bot ishga tushdi! Port: {port}")
-    
     try:
         await asyncio.Event().wait()
     finally:
